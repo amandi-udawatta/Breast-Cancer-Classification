@@ -1,92 +1,143 @@
-# 
-import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_auc_score, roc_curve
+import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+import sklearn.datasets
+from sklearn.model_selection import train_test_split
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
+import random
+from tensorflow import keras
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
+import seaborn as sns
 
-# Load the dataset
-df = pd.read_csv('data.csv')  # Replace 'data.csv' with the actual path to your dataset
 
-# Data Preprocessing
-df = df.drop(['Unnamed: 32', 'id'], axis=1)
-df['diagnosis'] = df['diagnosis'].map({'M': 1, 'B': 0})
-X = df.drop('diagnosis', axis=1)
-y = df['diagnosis']
+# Fix randomness across libraries
+tf.random.set_seed(2)
+np.random.seed(2)
+random.seed(2)
 
-# Train-Test Split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+################################ Model creation #################################
 
-# Data Scaling
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
+# Load the breast cancer dataset and store in a dataframe
+data_frame = pd.read_csv('data.csv')
 
-# Model Building using TensorFlow and Keras
-model = Sequential([
-    Dense(30, activation='relu', input_shape=(X_train.shape[1],)),
-    Dense(15, activation='relu'),
-    Dense(1, activation='sigmoid')
-])
+#add target columns to data frame
+data_frame['label'] = data_frame['diagnosis'].map({'M': 1, 'B': 0})
 
-# Compile the model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+# handle missing values
+data_frame = data_frame.dropna(axis=1)
 
-# Train the model
-history = model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=10, verbose=1)
+# drop the columns that are not required
+data_frame = data_frame.drop(columns=['id', 'diagnosis'], axis=1)
 
-# Evaluate the model
-loss, accuracy = model.evaluate(X_test, y_test)
-print(f"Accuracy: {accuracy:.2f}")
+X = data_frame.drop(columns='label', axis=1)
+Y = data_frame['label']
+#when u want to drop a column = axis=1, if row, axis=0
+
+# Split the data into training and test sets
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+#test size will be 20% of the data, random state will decide how to split it, just a random number
+
+# standardize the feature data
+scalar = StandardScaler()
+X_train_std = scalar.fit_transform(X_train)
+X_test_std = scalar.transform(X_test)
+
+#setting up layers of NN
+model = keras.Sequential([  keras.layers.Flatten(input_shape=(30,)),
+                            keras.layers.Dense(20, activation='relu'),
+                            keras.layers.Dense(2, activation='sigmoid')])
+#input layer flatten, hidden and output dense
+#dense means all neurons in the previous layer are connected to all neurons in the current layer
+#flatten means we flat out input matrix to single dimensional array
+#we give each feature a neuron at input layer. therefore #neurons = #features
+
+#compile the neural network
+model.compile(  optimizer='adam',
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy'])
+
+#training the NN
+history = model.fit(X_train_std, Y_train, validation_split=0.1, epochs=10)
+#epoch is the number of times the model will see the same data
 
 # Predictions
-y_pred_prob = model.predict(X_test)
-y_pred = (y_pred_prob > 0.5).astype(int)
+Y_pred = model.predict(X_test_std)
+Y_pred_labels = [np.argmax(i) for i in Y_pred]
+#argmax returns the index of the max value in the array
 
-# Confusion Matrix and Classification Report
-cm = confusion_matrix(y_test, y_pred)
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.title('Confusion Matrix')
+#################### Evaluate the model on the test set ##########################
+
+# Create subplots
+fig, axs = plt.subplots(2, 2, figsize=(12, 12))
+
+# model accuracy
+axs[0, 0].plot(history.history['accuracy'], label='Training Accuracy')
+axs[0, 0].plot(history.history['val_accuracy'], label='Validation Accuracy')
+axs[0, 0].set_title('Model Accuracy')
+axs[0, 0].set_xlabel('Epoch')
+axs[0, 0].set_ylabel('Accuracy')
+axs[0, 0].legend(loc='lower right')
+
+# confusion Matrix
+cm = confusion_matrix(Y_test, Y_pred_labels)
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=axs[0, 1], xticklabels=["Benign", "Malignant"], yticklabels=["Benign", "Malignant"])
+axs[0, 1].set_title("Confusion Matrix")
+axs[0, 1].set_xlabel("Predicted")
+axs[0, 1].set_ylabel("Actual")
+
+# ROC Curve and AUC
+fpr, tpr, _ = roc_curve(Y_test, Y_pred[:, 1])
+area_under_the_curve = auc(fpr, tpr)
+#auc closer to 1 is a strong classifier, if its closer to 0.5, weak classifier
+
+axs[1, 0].plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (AUC = %0.2f)' % area_under_the_curve)
+axs[1, 0].plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+axs[1, 0].set_xlim([0.0, 1.0])
+axs[1, 0].set_ylim([0.0, 1.05])
+axs[1, 0].set_title('Receiver Operating Characteristic (ROC)')
+axs[1, 0].set_xlabel('False Positive Rate')
+axs[1, 0].set_ylabel('True Positive Rate')
+axs[1, 0].legend(loc="lower right")
+
+# Correct and Incorrect Predictions
+tp = cm[1, 1]  # True Positives
+tn = cm[0, 0]  # True Negatives
+fp = cm[0, 1]  # False Positives
+fn = cm[1, 0]  # False Negatives
+
+correct = tp + tn
+incorrect = fp + fn
+
+axs[1, 1].bar(['Correct Predictions', 'Incorrect Predictions'], [correct, incorrect], color=['green', 'red'])
+axs[1, 1].set_title('Correct vs Incorrect Predictions')
+axs[1, 1].set_ylabel('Count')
+
+# Adjust layout
+plt.tight_layout()
+plt.subplots_adjust(hspace=0.4)  # Add more space between rows to avoid overlap
 plt.show()
 
-print("Classification Report:\n", classification_report(y_test, y_pred))
+# Display the AUC score
+print(f'ROC Area Under the Curve Score: {area_under_the_curve:.2f}')
 
-# ROC AUC Score and ROC Curve
-roc_auc = roc_auc_score(y_test, y_pred)
-print(f"ROC AUC Score: {roc_auc:.2f}")
+#####################build predictive model###########################################
 
-fpr, tpr, _ = roc_curve(y_test, y_pred_prob)
-plt.plot(fpr, tpr, color='blue', label=f'ROC Curve (area = {roc_auc:.2f})')
-plt.plot([0, 1], [0, 1], color='red', linestyle='--')
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('Receiver Operating Characteristic (ROC) Curve')
-plt.legend()
-plt.show()
+#give input here
+input_data = (8.618,11.79,54.34,224.5,0.09752,0.05272,0.02061,0.007799,0.1683,0.07187,0.1559,0.5796,1.046,8.322,0.01011,0.01055,0.01981,0.005742,0.0209,0.002788,9.507,15.4,59.9,274.9,0.1733,0.1239,0.1168,0.04419,0.322,0.09026
+)
+#change input_data to a numpy array
+input_data = np.asarray(input_data)
+#reshape input_data as we are predicting for one data point
+input_data = input_data.reshape(1, -1)
+#standardize input_data
+input_data = scalar.transform(input_data)
 
-# Display Classified Outputs with Visuals
-results = pd.DataFrame({'Actual': y_test, 'Predicted': y_pred.flatten()})
-print(results.head(10))  # Display the first 10 results
+#predict the input_data
+prediction = model.predict(input_data)
+prediction = [np.argmax(prediction)]
 
-# Visualize Classified Outputs
-results['Result'] = results.apply(lambda x: 'Correct' if x['Actual'] == x['Predicted'] else 'Incorrect', axis=1)
-sns.countplot(x='Result', data=results)
-plt.title('Correct vs Incorrect Classifications')
-plt.show()
-
-# Plotting first few predictions
-plt.figure(figsize=(10, 6))
-plt.scatter(range(len(y_test)), y_test, color='blue', label='Actual')
-plt.scatter(range(len(y_test)), y_pred.flatten(), color='red', label='Predicted')
-plt.title('Actual vs Predicted Tumor Classifications')
-plt.xlabel('Sample Index')
-plt.ylabel('Classification (0: Benign, 1: Malignant)')
-plt.legend()
-plt.show()
+if (prediction[0]==0):
+    print('The Tumour is Benign')
+else:
+    print('The Tumour is Malignant')
