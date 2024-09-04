@@ -29,11 +29,11 @@ A breast cancer classification system using neural networks, designed to identif
 
 3. **Activate the Virtual Environment:**
    - On macOS/Linux:
-      ```bash
-      source venv/bin/activate
+     ```bash
+     source venv/bin/activate
    - On Windows:
-    ```bash
-    .\venv\Scripts\activate
+     ```bash
+     .\venv\Scripts\activate
 
 4. Install the Required Libraries: 
     ```bash
